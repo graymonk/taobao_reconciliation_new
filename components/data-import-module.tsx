@@ -11,11 +11,14 @@ interface DataImportModuleProps {
   onImport: (data: { orders: any[]; products: any[] }) => void
 }
 
-  // 文件大小限制
-  const MAX_CSV_SIZE_API = 50 * 1024 * 1024 // 50MB
-  const MAX_EXCEL_SIZE_API = 50 * 1024 * 1024 // 50MB
-  const MAX_FILE_SIZE = 50 * 1024 * 1024
-  const MAX_EXCEL_SIZE = 15 * 1024 * 1024
+// 文件大小限制
+const MAX_CSV_SIZE_API = 50 * 1024 * 1024 // 50MB
+const MAX_EXCEL_SIZE_API = 50 * 1024 * 1024 // 50MB
+const MAX_FILE_SIZE = 50 * 1024 * 1024
+const MAX_EXCEL_SIZE = 15 * 1024 * 1024
+
+// Vercel 免费计划对请求体约 4.5MB 的限制，生产环境禁用服务端解析
+const ENABLE_SERVER_PARSING = process.env.NODE_ENV !== "production"
 
 export default function DataImportModule({ onImport }: DataImportModuleProps) {
   const [orders, setOrders] = useState<any[]>([])
@@ -237,12 +240,13 @@ export default function DataImportModule({ onImport }: DataImportModuleProps) {
         throw new Error("请上传 CSV 或 Excel 文件 (.csv, .xlsx, .xls)")
       }
 
-      // 判断是否使用后端 API
-      // Excel 文件统一使用后端 API（因为解压需要大量内存）
-      // CSV 文件超过 30MB 使用后端 API
-      const shouldUseAPI = 
-        isExcel || // 所有 Excel 文件都使用后端 API
-        (isCSV && file.size > 30 * 1024 * 1024)
+      // 判断是否使用后端 API（仅在开发环境启用，生产环境（Vercel）受限于 4.5MB 请求体限制）
+      const shouldUseAPI =
+        ENABLE_SERVER_PARSING &&
+        (
+          (isExcel && file.size > MAX_EXCEL_SIZE) ||
+          (isCSV && file.size > 30 * 1024 * 1024)
+        )
 
       if (shouldUseAPI) {
         // 使用后端 API 解析
@@ -253,11 +257,12 @@ export default function DataImportModule({ onImport }: DataImportModuleProps) {
         // 使用前端解析（小文件）
         if (isExcel && file.size > MAX_EXCEL_SIZE) {
           throw new Error(
-            `Excel 文件过大 (${(file.size / 1024 / 1024).toFixed(2)}MB)，超过限制 (${MAX_EXCEL_SIZE / 1024 / 1024}MB)。\n\n` +
-            `解决方案：\n` +
+            `Excel 文件过大 (${(file.size / 1024 / 1024).toFixed(2)}MB)，超过浏览器可解析限制 (${MAX_EXCEL_SIZE / 1024 / 1024}MB)。\n\n` +
+            `由于 Vercel 平台对上传文件大小限制约 4.5MB，此项目在生产环境无法使用服务器解析超大 Excel 文件。\n\n` +
+            `建议：\n` +
             `1. 将 Excel 文件另存为 CSV 格式（推荐，可处理更大文件）\n` +
-            `2. 或者将文件拆分为多个较小的 Excel 文件分批导入\n` +
-            `3. CSV 格式支持最大 ${MAX_FILE_SIZE / 1024 / 1024}MB 的文件`
+            `2. 将文件拆分为多个较小的 Excel 文件分批导入\n` +
+            `3. 仅保留必要列，删除长文本或图片等大字段`
           )
         }
 
@@ -330,7 +335,7 @@ export default function DataImportModule({ onImport }: DataImportModuleProps) {
           error.name === "RangeError" ||
           error.message.includes("string longer than")
         
-        if (isMemoryError && currentFile) {
+        if (isMemoryError && currentFile && ENABLE_SERVER_PARSING) {
           try {
             console.warn("检测到内存错误，尝试使用服务器解析:", error.name)
             setLoadingProgress("浏览器内存不足，切换到服务器解析...")
@@ -352,6 +357,12 @@ export default function DataImportModule({ onImport }: DataImportModuleProps) {
             console.error("API 解析也失败:", apiError)
             errorMessage = `文件解析失败：浏览器和服务器都无法处理此文件。\n\n建议：\n1. 将 Excel 文件转换为 CSV 格式\n2. 或者将文件拆分为多个较小的文件`
           }
+        } else if (isMemoryError && !ENABLE_SERVER_PARSING) {
+          errorMessage =
+            `文件解析失败：浏览器内存不足，且生产环境限制无法使用服务器解析。\n\n` +
+            `建议：\n1. 将 Excel 文件转换为 CSV 格式（推荐，内存占用更低）\n` +
+            `2. 删除文件中的超长文本或富媒体列后再尝试\n` +
+            `3. 将文件拆分为多个较小的文件`
         } else {
           // 限制错误消息长度
           const msg = error.message
