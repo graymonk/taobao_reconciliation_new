@@ -118,6 +118,17 @@ export default function DataImportModule({ onImport }: DataImportModuleProps) {
 
   // 使用后端 API 解析文件
   const parseFileViaAPI = async (file: File): Promise<any[]> => {
+    if (!ENABLE_SERVER_PARSING) {
+      throw new Error(
+        `当前站点部署在 Vercel，受限于 Serverless 函数上传体积（约 4.5MB），无法使用服务器解析大文件。\n\n` +
+        `建议：\n` +
+        `1. 将 Excel 文件另存为 CSV 格式（推荐，体积更小）\n` +
+        `2. 删除不必要的列、图片或长文本，减小文件体积\n` +
+        `3. 将文件拆分为多个较小的文件，分批导入\n` +
+        `如需上传超大文件，请改用自托管服务器或购买自定义 Serverless 方案`
+      )
+    }
+
     setLoadingProgress("正在上传文件到服务器...")
     
     const formData = new FormData()
